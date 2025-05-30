@@ -25,7 +25,8 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdio.h>
-#include "esp8266-01.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include "myprintf.h"
 /* USER CODE END Includes */
 
@@ -40,18 +41,6 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-const char* WiFi_Name = "****";
-const char* Wifi_Password = "****";
-const char* Port = "***";
-const char* IP = "***";
-const char* User_Name = "***";
-const char* User_Password = "****";
-
-const char* TOPIC = "***";
-
-
-#define Test_uartPC USART2
-#define Test_uartESP USART3
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -60,41 +49,43 @@ UART_HandleTypeDef huart3;
 UART_HandleTypeDef huart6;
 
 /* USER CODE BEGIN PV */
-ItemUnit Test_uartPc,Test_uartEsp;
-
-
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_USART3_UART_Init(void);
 static void MX_USART6_UART_Init(void);
+static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
-
-
-
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 void ESP8266_SendCommand(char *cmd)
 {
+	char test[] = "Hello from UART2!\r\n";
+	HAL_UART_Transmit(&huart2, (uint8_t*)test, strlen(test), HAL_MAX_DELAY);
+	HAL_Delay(10);
     myprintf(&huart6, "%s\r\n", cmd);
-    //myprintf(&huart2, "%s\r\n", cmd);
+    HAL_Delay(10);
 }
 
 void ESP8266_ReadResponse()
 {
-    char resp[128];
+    char resp[64];
     HAL_UART_Receive(&huart6, (uint8_t*)resp, sizeof(resp), 2000); // Blocking read
     myprintf(&huart2, "ESP Response: %s\n", resp);
+    HAL_Delay(10);
 }
-
+void showIP_task(void *pvParameters)
+{
+	while (1) {
+		ESP8266_SendCommand("AT+CIFSR");
+		ESP8266_ReadResponse();
+		vTaskDelay(500);
+	}
+}
 /* USER CODE END 0 */
 
 /**
@@ -127,30 +118,32 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
-  MX_USART3_UART_Init();
   MX_USART6_UART_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+
   ESP8266_SendCommand("AT");           // Check if ESP is alive
   ESP8266_ReadResponse();
 
   ESP8266_SendCommand("AT+CWMODE=1");  // Set to Station mode
-  ESP8266_ReadResponse();
+  //ESP8266_ReadResponse();
 
   ESP8266_SendCommand("AT+CWJAP=\"AndroidAPF7C1\",\"eason901215\"");  // Connect to WiFi
   ESP8266_ReadResponse();
+
+  xTaskCreate(showIP_task, "ShowIP", 512, NULL, 0, NULL);
+  vTaskStartScheduler();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-	while (1)
-	{
-
-		Read_Message_MQTT(&Test_uartEsp, &Test_uartPc);
-	   HAL_Delay(50);
+  while (1)
+  {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	}
+  }
   /* USER CODE END 3 */
 }
 
@@ -244,7 +237,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 11520;
+  huart3.Init.BaudRate = 115200;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
@@ -325,34 +318,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-
-/*HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart):
- * this function is standard uart.C is the function.
- *  This function is called every time the interrupt enters
- *   the interrupt.We do 1 byte to 1 byte reading. We'll record
- *   it in the series. */
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-	if (huart->Instance == Test_uartPC) //queried which uart is used
-	{
-		HAL_UART_Receive_IT(Test_uartPc.huart, &Test_uartPc.byteRx, 1);
-
-		Test_uartPc.rxBuffer[Test_uartPc.rxbufferIndex] = Test_uartPc.byteRx;
-		Test_uartPc.rxbufferIndex++;
-
-	}
-
-	if (huart->Instance == Test_uartESP) {
-		HAL_UART_Receive_IT(Test_uartEsp.huart,&Test_uartEsp.byteRx, 1);
-
-		Test_uartEsp.rxBuffer[Test_uartEsp.rxbufferIndex] = Test_uartEsp.byteRx;
-		Test_uartEsp.rxbufferIndex++;
-
-	}
-}
-
-
-
 /* USER CODE END 4 */
 
 /**
