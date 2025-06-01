@@ -3,7 +3,7 @@
  ******************************************************************************
  * @file           : main.c
  * @brief          : Esp8266-01 Test-Function
- * Author          : Halil Gök
+ * Author          :
  * websites        :https://embeddedsystemshalilgk.wordpress.com
  * Youtube         :https://www.youtube.com/channel/UC8cJpAVnScqDzZ7IFs2tQMw
  ******************************************************************************
@@ -32,6 +32,15 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum {
+    STATE_RESET,
+    STATE_INIT,
+    STATE_JOIN_WIFI,
+    STATE_CHECK_STATUS,
+    STATE_GET_IP,
+	STATE_CONNECT_TCP,
+    STATE_DONE
+} esp8266_state_t;
 
 /* USER CODE END PTD */
 
@@ -41,6 +50,7 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+#define resp_len 128
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -49,6 +59,10 @@ UART_HandleTypeDef huart3;
 UART_HandleTypeDef huart6;
 
 /* USER CODE BEGIN PV */
+char resp[resp_len];
+volatile int if_resp_callback;
+volatile int if_resp_timeout;
+volatile int resp_index;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -64,28 +78,125 @@ static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN 0 */
 void ESP8266_SendCommand(char *cmd)
 {
-	char test[] = "Hello from UART2!\r\n";
-	HAL_UART_Transmit(&huart2, (uint8_t*)test, strlen(test), HAL_MAX_DELAY);
-	HAL_Delay(10);
+	myprintf(&huart2, "Send command: %s\r\n", cmd);
     myprintf(&huart6, "%s\r\n", cmd);
-    HAL_Delay(10);
 }
 
 void ESP8266_ReadResponse()
 {
-    char resp[64];
-    HAL_UART_Receive(&huart6, (uint8_t*)resp, sizeof(resp), 2000); // Blocking read
-    myprintf(&huart2, "ESP Response: %s\n", resp);
-    HAL_Delay(10);
+    memset(resp, '\0', resp_len);
+    if_resp_callback = 0;
+    if_resp_timeout = 0;
+    resp_index = 0;
+
+    HAL_UART_Receive_IT(&huart6, (uint8_t *)&resp[resp_index], 1);
+
+    uint32_t start_time = HAL_GetTick();
+
+    while (if_resp_callback == 0) {
+        if (HAL_GetTick() - start_time > 2000) {
+            if_resp_timeout = 1;
+            break;
+        }
+    }
+    vTaskDelay(1000);
+    myprintf(&huart2, "Received: %s\r\n", resp + 1);
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART6) {
+        if (resp_index < resp_len - 1) {
+        	resp_index++;
+            // Continue receiving
+            HAL_UART_Receive_IT(&huart6, (uint8_t *)&resp[resp_index], 1);
+
+            // Look for end of response
+            if (resp[resp_index - 1] == '\n' || if_resp_timeout == 1) {
+                resp[resp_index] = '\0'; // Ensure null termination
+                if_resp_callback = 1;
+                // Don't reset resp_index here to preserve received data
+            }
+        } else {
+            // Buffer full
+            resp[resp_len - 1] = '\0';
+            if_resp_callback = 1;
+        }
+    }
 }
 void showIP_task(void *pvParameters)
 {
-	while (1) {
-		ESP8266_SendCommand("AT+CIFSR");
-		ESP8266_ReadResponse();
-		vTaskDelay(500);
-	}
+    esp8266_state_t state = STATE_RESET;
+    int retry = 0;
+
+    while (1) {
+        switch (state) {
+        case STATE_RESET:
+            ESP8266_SendCommand("AT+RST");
+            ESP8266_ReadResponse();
+            if (strstr(resp, "OK")) {
+                state = STATE_INIT;
+                retry = 0;
+            } else if (++retry > 3) {
+                myprintf(&huart2, "Reset failed, retrying...\r\n");
+                retry = 0;
+            }
+            break;
+
+        case STATE_INIT:
+            ESP8266_SendCommand("AT");  // Test AT startup
+            ESP8266_ReadResponse();
+            ESP8266_SendCommand("AT+CWMODE=1");  // Set station mode
+            ESP8266_ReadResponse();
+            state = STATE_JOIN_WIFI;
+            break;
+
+        case STATE_JOIN_WIFI:
+            ESP8266_SendCommand("AT+CWJAP=\"AndroidAPF7C1\",\"eason901215\"");
+            ESP8266_ReadResponse();
+            if (strstr(resp + 1, "WIFI CONNECTED") || strstr(resp + 1, "OK")) {
+                state = STATE_CHECK_STATUS;
+                retry = 0;
+            } else if (++retry > 3) {
+                myprintf(&huart2, "WiFi join failed, retrying...\r\n");
+                state = STATE_RESET;
+                retry = 0;
+            }
+            break;
+
+        case STATE_CHECK_STATUS:
+            ESP8266_SendCommand("AT+CIPSTATUS");
+            ESP8266_ReadResponse();
+            if (strstr(resp + 1, "STATUS:2") || strstr(resp + 1, "STATUS:3") || strstr(resp + 1, "OK")) {
+                state = STATE_GET_IP;
+            }
+            break;
+
+        case STATE_GET_IP:
+            ESP8266_SendCommand("AT+CIFSR");
+            ESP8266_ReadResponse();
+            state = STATE_CONNECT_TCP;
+            break;
+        case STATE_CONNECT_TCP:
+        	ESP8266_SendCommand("AT+CIPMUX=0");
+        	ESP8266_ReadResponse();
+        	ESP8266_SendCommand("AT+CIPSTART=\"TCP\",\"192.168.191.189\",5000");
+        	ESP8266_ReadResponse();
+        	state = STATE_DONE;
+        case STATE_DONE:
+            // Optionally poll IP or status repeatedly
+            vTaskDelay(5000);  // Poll every 5s
+            break;
+
+        default:
+            state = STATE_RESET;
+            break;
+        }
+
+        vTaskDelay(1500);
+    }
 }
+
 /* USER CODE END 0 */
 
 /**
@@ -121,17 +232,7 @@ int main(void)
   MX_USART6_UART_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-
-  ESP8266_SendCommand("AT");           // Check if ESP is alive
-  ESP8266_ReadResponse();
-
-  ESP8266_SendCommand("AT+CWMODE=1");  // Set to Station mode
-  //ESP8266_ReadResponse();
-
-  ESP8266_SendCommand("AT+CWJAP=\"AndroidAPF7C1\",\"eason901215\"");  // Connect to WiFi
-  ESP8266_ReadResponse();
-
-  xTaskCreate(showIP_task, "ShowIP", 512, NULL, 0, NULL);
+  xTaskCreate(showIP_task, "ShowIP", 1024, NULL, 0, NULL);
   vTaskStartScheduler();
 
   /* USER CODE END 2 */
