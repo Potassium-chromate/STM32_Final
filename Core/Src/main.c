@@ -69,8 +69,8 @@ volatile int resp_index;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_USART6_UART_Init(void);
 static void MX_USART3_UART_Init(void);
+static void MX_USART6_UART_Init(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
@@ -180,12 +180,20 @@ void showIP_task(void *pvParameters)
         case STATE_CONNECT_TCP:
         	ESP8266_SendCommand("AT+CIPMUX=0");
         	ESP8266_ReadResponse();
-        	ESP8266_SendCommand("AT+CIPSTART=\"TCP\",\"192.168.191.189\",5000");
+        	ESP8266_SendCommand("AT+CIPSTART=\"TCP\",\"192.168.200.8\",5000");
         	ESP8266_ReadResponse();
         	state = STATE_DONE;
         case STATE_DONE:
-            // Optionally poll IP or status repeatedly
-            vTaskDelay(5000);  // Poll every 5s
+            ESP8266_ReadResponse();  // Check for any +IPD data
+            char *data_start = strstr(resp, "+IPD,");
+            if (data_start) {
+                data_start = strchr(data_start, ':');
+                if (data_start) {
+                    data_start++;  // Skip the ':'
+                    myprintf(&huart2, "Received from PC: %s\r\n", data_start);
+                }
+            }
+            vTaskDelay(500);  // Check more frequently for responsiveness
             break;
 
         default:
@@ -229,8 +237,8 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
-  MX_USART6_UART_Init();
   MX_USART3_UART_Init();
+  MX_USART6_UART_Init();
   /* USER CODE BEGIN 2 */
   xTaskCreate(showIP_task, "ShowIP", 1024, NULL, 0, NULL);
   vTaskStartScheduler();
@@ -338,7 +346,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
+  huart3.Init.BaudRate = 11520;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
