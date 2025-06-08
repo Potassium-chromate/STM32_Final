@@ -69,8 +69,8 @@ volatile int resp_index;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_USART6_UART_Init(void);
 static void MX_USART3_UART_Init(void);
+static void MX_USART6_UART_Init(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
@@ -99,30 +99,32 @@ void ESP8266_ReadResponse()
             break;
         }
     }
-    vTaskDelay(1000);
-    myprintf(&huart2, "Received: %s\r\n", resp + 1);
+    vTaskDelay(500);
+    myprintf(&huart2, "Received: %s\r\n", resp);
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == USART6) {
-        if (resp_index < resp_len - 1) {
-        	resp_index++;
-            // Continue receiving
-            HAL_UART_Receive_IT(&huart6, (uint8_t *)&resp[resp_index], 1);
+	// Skip storing \r in first byte
+	if (huart->Instance == USART6) {
+		uint8_t byte = (uint8_t)huart->Instance->DR;  // or however you read the data
 
-            // Look for end of response
-            if (resp[resp_index - 1] == '\n' || if_resp_timeout == 1) {
-                resp[resp_index] = '\0'; // Ensure null termination
-                if_resp_callback = 1;
-                // Don't reset resp_index here to preserve received data
-            }
-        } else {
-            // Buffer full
-            resp[resp_len - 1] = '\0';
-            if_resp_callback = 1;
-        }
-    }
+		// Skip first \r, \n
+		if (resp_index == 0 && (byte == '\r' || byte == '\n')) {
+			HAL_UART_Receive_IT(&huart6, (uint8_t *)&resp[resp_index], 1);
+			return;
+		}
+
+		resp[resp_index] = byte;
+		resp_index++;
+
+		HAL_UART_Receive_IT(&huart6, (uint8_t *)&resp[resp_index], 1);
+
+		if (resp[resp_index - 1] == '\n' || if_resp_timeout == 1) {
+			resp[resp_index] = '\0';
+			if_resp_callback = 1;
+		}
+	}
 }
 void showIP_task(void *pvParameters)
 {
@@ -152,16 +154,17 @@ void showIP_task(void *pvParameters)
             break;
 
         case STATE_JOIN_WIFI:
-            ESP8266_SendCommand("AT+CWJAP=\"AndroidAPF7C1\",\"eason901215\"");
+            ESP8266_SendCommand("AT+CWJAP=\"ALGO\",\"algoalgo\"");
             ESP8266_ReadResponse();
             if (strstr(resp + 1, "WIFI CONNECTED") || strstr(resp + 1, "OK")) {
                 state = STATE_CHECK_STATUS;
                 retry = 0;
-            } else if (++retry > 3) {
+            } else if (++retry > 5) {
                 myprintf(&huart2, "WiFi join failed, retrying...\r\n");
                 state = STATE_RESET;
                 retry = 0;
             }
+            vTaskDelay(1500);
             break;
 
         case STATE_CHECK_STATUS:
@@ -180,20 +183,32 @@ void showIP_task(void *pvParameters)
         case STATE_CONNECT_TCP:
         	ESP8266_SendCommand("AT+CIPMUX=0");
         	ESP8266_ReadResponse();
-        	ESP8266_SendCommand("AT+CIPSTART=\"TCP\",\"192.168.191.189\",5000");
+        	ESP8266_SendCommand("AT+CIPSTART=\"TCP\",\"192.168.0.154\",5000");
         	ESP8266_ReadResponse();
         	state = STATE_DONE;
         case STATE_DONE:
-            // Optionally poll IP or status repeatedly
-            vTaskDelay(5000);  // Poll every 5s
-            break;
-
+            ESP8266_ReadResponse();  // Check for any +IPD data
+            char *data_start = strstr(resp, "+IPD,");
+            if (data_start) {
+                data_start = strchr(data_start, ':');
+                if (data_start) {
+                    data_start++;  // Skip the ':'
+                    myprintf(&huart2, "Received from PC: %s\r\n", data_start);
+                }
+                state = STATE_DONE;
+                break;
+            }else if(strstr(resp, "LOSED")) { // Handle lost the connect to server
+            	state = STATE_RESET;
+            	break;
+            }else{
+            	myprintf(&huart2, "Unexpected response: %s\r\n", data_start);
+				state = STATE_DONE;
+				break;
+            }
         default:
             state = STATE_RESET;
             break;
         }
-
-        vTaskDelay(1500);
     }
 }
 
@@ -229,8 +244,8 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
-  MX_USART6_UART_Init();
   MX_USART3_UART_Init();
+  MX_USART6_UART_Init();
   /* USER CODE BEGIN 2 */
   xTaskCreate(showIP_task, "ShowIP", 1024, NULL, 0, NULL);
   vTaskStartScheduler();
@@ -338,7 +353,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
+  huart3.Init.BaudRate = 11520;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;

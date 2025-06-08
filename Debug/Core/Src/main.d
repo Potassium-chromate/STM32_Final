@@ -25,7 +25,12 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_pwr.h \
  ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_pwr_ex.h \
  ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_uart.h \
- ../Core/Inc/esp8266-01.h ../Core/Inc/myprintf.h
+ ../FreeRTOS/include/FreeRTOS.h ../FreeRTOS/include/FreeRTOSConfig.h \
+ ../FreeRTOS/include/projdefs.h ../FreeRTOS/include/portable.h \
+ ../FreeRTOS/include/deprecated_definitions.h \
+ ../FreeRTOS/portable/ARM_CM4F/portmacro.h \
+ ../FreeRTOS/include/mpu_wrappers.h ../FreeRTOS/include/task.h \
+ ../FreeRTOS/include/list.h ../Core/Inc/myprintf.h
 ../Core/Inc/main.h:
 ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h:
 ../Core/Inc/stm32f4xx_hal_conf.h:
@@ -53,5 +58,13 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_pwr.h:
 ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_pwr_ex.h:
 ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_uart.h:
-../Core/Inc/esp8266-01.h:
+../FreeRTOS/include/FreeRTOS.h:
+../FreeRTOS/include/FreeRTOSConfig.h:
+../FreeRTOS/include/projdefs.h:
+../FreeRTOS/include/portable.h:
+../FreeRTOS/include/deprecated_definitions.h:
+../FreeRTOS/portable/ARM_CM4F/portmacro.h:
+../FreeRTOS/include/mpu_wrappers.h:
+../FreeRTOS/include/task.h:
+../FreeRTOS/include/list.h:
 ../Core/Inc/myprintf.h:
